@@ -285,7 +285,7 @@ public:
         const double x_star = log(p_remainder * exp(hull[num_hull_segments - 1].raw_cumulative_integral) *
                 hp_x + exp((z_prev - x)* hp_x + h_x - upper_hull_max)) +
                         x*hp_x - (h_x - upper_hull_max);
-        return x_star;
+        return x_star / hp_x;
     };
 
     void insertSegment(const double x_new, const double h_xnew, const int origin_idx) {
