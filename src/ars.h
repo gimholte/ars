@@ -11,11 +11,11 @@
 #ifndef ARS_H_
 #define ARS_H_
 
-//#include <Rcpp.h>
+#include <Rcpp.h>
 #include <R.h>
 #include "RngStream.h"
 #include "utils.h"
-//using namespace Rcpp;
+using namespace Rcpp;
 
 #define MAX_HULL_SIZE 100
 #define MAX_HULL_TRIALS 1000
@@ -253,6 +253,9 @@ public:
         // extend right point until hull derivative is negative
         while(hpx1 >= 0.0) {
             hull[1].left_x *= 2.0;
+            if (!R_FINITE(hull[1].left_x)) {
+                Rcpp::stop("Right initial point no longer finite after attempt to find negative slope.");
+            }
             hpx1 = dist.pdfDeriv(hull[1].left_x);
         }
         hull[1].hprime_x = hpx1;

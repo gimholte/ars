@@ -28,7 +28,14 @@ protected:
 };
 }
 
+TEST_F(HullTest, HullInitExtendRightPoint) {
+    double gamma_args[] = {2.0, 2.0};
+    hull.initialize(.2, .3, gamma_args);
+    ASSERT_EQ(.6, hull.hull[1].left_x);
+}
+
 TEST_F(HullTest, HullInit) {
+    // covers method initialize, initializeHullMax
     ASSERT_EQ(2, hull.num_hull_segments);
     EXPECT_DOUBLE_EQ(h_x0, hull.hull[0].h_x);
     EXPECT_DOUBLE_EQ(h_x1, hull.hull[1].h_x);
@@ -42,6 +49,7 @@ TEST_F(HullTest, HullInit) {
 }
 
 TEST_F(HullTest, IntegrateHullSegments) {
+    // covers methods integrateSegment and normalizeHull
     double integral, integral1;
     double result;
     integral = (exp(h_x0 - hull.upper_hull_max - x0 * hp_x0) / hp_x0) * (exp(hp_x0 * z0) - exp(0.0));
@@ -59,6 +67,7 @@ TEST_F(HullTest, IntegrateHullSegments) {
     EXPECT_DOUBLE_EQ(logspaceAdd(integral, integral1), hull.hull[1].raw_cumulative_integral);
 
     EXPECT_EQ(0.0, hull.hull[1].cum_prob);
+    EXPECT_EQ(integral - logspaceAdd(integral, integral1), hull.hull[0].cum_prob);
 }
 
 TEST_F(HullTest, BinarySearch) {
