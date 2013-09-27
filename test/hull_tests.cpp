@@ -6,6 +6,7 @@
  */
 
 #include "gtest/gtest.h"
+#include <iostream>
 #include "ars.h"
 
 namespace {
@@ -28,6 +29,7 @@ protected:
 }
 
 TEST_F(HullTest, HullInit) {
+    ASSERT_EQ(2, hull.num_hull_segments);
     EXPECT_DOUBLE_EQ(h_x0, hull.hull[0].h_x);
     EXPECT_DOUBLE_EQ(h_x1, hull.hull[1].h_x);
     EXPECT_DOUBLE_EQ(hp_x0, hull.hull[0].hprime_x);
@@ -57,6 +59,29 @@ TEST_F(HullTest, IntegrateHullSegments) {
     EXPECT_DOUBLE_EQ(logspaceAdd(integral, integral1), hull.hull[1].raw_cumulative_integral);
 
     EXPECT_EQ(0.0, hull.hull[1].cum_prob);
+}
+
+TEST_F(HullTest, BinarySearch) {
+    Hull<GammaDistribution> search_test_hull;
+    search_test_hull.hull[0].cum_prob = -4.0;
+    search_test_hull.hull[1].cum_prob = -3.0;
+    search_test_hull.hull[2].cum_prob = -2.0;
+    search_test_hull.hull[3].cum_prob = -1.0;
+    search_test_hull.hull[4].cum_prob = 0.0;
+    search_test_hull.num_hull_segments = 5;
+    int segment;
+
+    for(int i = 0; i < 5; i++) {
+        double x = -(4.0 - i + .5);
+        segment = search_test_hull.argBinarySearch(x, 0, 4);
+        EXPECT_EQ(i, segment);
+    }
+
+    segment = hull.argBinarySearch(log(.001), 0, 1);
+    ASSERT_EQ(segment, 0);
+
+    segment = hull.argBinarySearch(log(.999), 0, 1);
+    ASSERT_EQ(segment, 1);
 }
 
 int main(int argc, char **argv) {
