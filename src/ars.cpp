@@ -17,23 +17,6 @@ double logspaceAdd(const double loga, const double logb) {
 }
 
 template <class T>
-void setZcoord(HullSegment & seg_left, HullSegment const & seg_right) {
-    const double xj = seg_left.left_x;
-    const double hxj = seg_left.h_x;
-    const double hpxj = seg_left.hprime_x;
-
-    const double xj1 = seg_right.left_x;
-    const double hxj1 = seg_right.h_x;
-    const double hpxj1 = seg_right.hprime_x;
-
-    if ((hpxj - hpxj1) > 0.0) {
-        seg_left.z = (hxj1 - hxj - xj1 * hpxj1 + xj * hpxj) / (hpxj - hpxj1);
-    } else
-        seg_left.z = (hxj + hxj1) / 2.0;
-    return;
-}
-
-template <class T>
 void Hull<T>::initialize(const double x0, const double x1, double const * const pdf_args) {
     // before all else, initialize the distribution parameters
     dist.setParameters(pdf_args);
@@ -57,6 +40,23 @@ void Hull<T>::initialize(const double x0, const double x1, double const * const 
     setZcoord(hull[0], hull[1]);
     hull[1].z = INFINITY;
     initializeHullMax();
+}
+
+template <class T>
+void Hull<T>::setZcoord(HullSegment & seg_left, HullSegment const & seg_right) {
+    const double xj = seg_left.left_x;
+    const double hxj = seg_left.h_x;
+    const double hpxj = seg_left.hprime_x;
+
+    const double xj1 = seg_right.left_x;
+    const double hxj1 = seg_right.h_x;
+    const double hpxj1 = seg_right.hprime_x;
+
+    if ((hpxj - hpxj1) > 0.0) {
+        seg_left.z = (hxj1 - hxj - xj1 * hpxj1 + xj * hpxj) / (hpxj - hpxj1);
+    } else
+        seg_left.z = (hxj + hxj1) / 2.0;
+    return;
 }
 
 template <class T>
@@ -92,6 +92,76 @@ void Hull<T>::normalizeHull() {
 }
 
 template <class T>
+int Hull<T>::drawSample(RngStream rng, double & x_sample) {
+    int num_trials = 0;
+    int segment_idx;
+    int test_outcome;
+    double x_trial, hx_trial;
+    while (num_trials < MAX_HULL_TRIALS) {
+        // sample the upper hull
+        x_trial = inverseCDF(RngStream_RandU01(rng), segment_idx);
+        // apply squeeze test
+        test_outcome = squeezeTest(rng, x_trial, hx_trial, segment_idx);
+        if (test_outcome == HULL_SAMPLE_ACCEPT) {
+            x_sample = x_trial;
+            return 1;
+        }
+        // sample rejected, insert into hull
+        insertSegment(x_trial, hx_trial, segment_idx);
+        num_trials++;
+    }
+    return 0;
+}
+
+template <class T>
+int Hull<T>::argBinarySearch(const double log_u, const int lower, const int upper) {
+    const int mid = (lower + upper) / 2;
+    if (mid == lower)
+        return log_u < hull[lower].cum_prob ? lower : upper;
+    if (log_u < hull[mid].cum_prob) {
+        return argBinarySearch(log_u, lower, mid);
+    } else {
+        return argBinarySearch(log_u, mid, upper);
+    }
+}
+
+template <class T>
+int Hull<T>::squeezeTest(RngStream rng, double & x_trial, double & hx_trial, int segment_idx) {
+    double w = log(RngStream_RandU01(rng));
+    const double x = hull[segment_idx].left_x;
+    const double h_x = hull[segment_idx].h_x;
+    const double hp_x = hull[segment_idx].hprime_x;
+    const double z = hull[segment_idx].z;
+    double upr_hull_val = h_x + (x_trial - x) * hp_x;
+    double lwr_hull_val;
+
+    //compute lower hull value
+    if ((x_trial < x) && (segment_idx > 0)) {
+        const double x_lower = hull[segment_idx - 1].left_x;
+        const double hx_lower = hull[segment_idx - 1].h_x;
+        lwr_hull_val = ((x - x_trial) * h_x + (x_trial - x_lower) * hx_lower) /
+                (x - x_lower);
+    } else if ((x_trial > x) && (segment_idx < (num_hull_segments - 1))) {
+        const double x_upper = hull[segment_idx + 1].left_x;
+        const double hx_upper = hull[segment_idx + 1].h_x;
+        lwr_hull_val = ((x_upper - x_trial) * hx_upper + (x_trial - x) * h_x) /
+                (x_upper - x);
+    } else {
+        lwr_hull_val = -INFINITY;
+    }
+
+    // squeezing tests
+    if (w <= lwr_hull_val - upr_hull_val) {
+        return HULL_SAMPLE_ACCEPT;
+    }
+    hx_trial = dist.pdf(x_trial);
+    if (hx_trial - upr_hull_val) {
+        return HULL_SAMPLE_ACCEPT;
+    }
+    return HULL_SAMPLE_REJECT;
+}
+
+template <class T>
 double Hull<T>::integrateSegment(HullSegment const & segment, const double z_prev) {
     const double xj = segment.left_x;
     /* subtract hull max to bound upper hull between zero and one */
@@ -115,20 +185,8 @@ double Hull<T>::integrateSegment(HullSegment const & segment, const double z_pre
 }
 
 template <class T>
-int Hull<T>::argBinarySearch(const double log_u, const int lower, const int upper) {
-    const int mid = (lower + upper) / 2;
-    if (mid == lower)
-        return log_u < hull[lower].cum_prob ? lower : upper;
-    if (log_u < hull[mid].cum_prob) {
-        return argBinarySearch(log_u, lower, mid);
-    } else {
-        return argBinarySearch(log_u, mid, upper);
-    }
-}
-
-template <class T>
 double Hull<T>::inverseCDF(const double p, int & seg_idx) {
-    seg_idx = argBinarySearch(log(p), 0, num_hull_segments);
+    seg_idx = argBinarySearch(log(p), 0, num_hull_segments - 1);
     /* seg_idx now contains the index of the hull segment such that
      * our sampled x_star is in the interval
      * (z[seg_idx - 1], z[seg_idx]]
@@ -144,28 +202,6 @@ double Hull<T>::inverseCDF(const double p, int & seg_idx) {
             hp_x + exp((z_prev - x)* hp_x + h_x - upper_hull_max)) +
                     x*hp_x - (h_x - upper_hull_max);
     return x_star;
-}
-
-template <class T>
-int Hull<T>::drawSample(RngStream rng, double & x_sample) {
-    int num_trials = 0;
-    int segment_idx;
-    int test_outcome;
-    double x_trial, hx_trial;
-    while (num_trials < MAX_HULL_TRIALS) {
-        // sample the upper hull
-        x_trial = inverseCDF(RngStream_RandU01(rng), segment_idx);
-        // apply squeeze test
-        test_outcome = squeezeTest(rng, x_trial, hx_trial, segment_idx);
-        if (test_outcome == HULL_SAMPLE_ACCEPT) {
-            x_sample = x_trial;
-            return 1;
-        }
-        // sample rejected, insert into hull
-        insertSegment(x_trial, hx_trial, segment_idx);
-        num_trials++;
-    }
-    return 0;
 }
 
 template <class T>
@@ -244,41 +280,5 @@ double AdaptiveGibbsSampler<T>::sample(RngStream rng, double const * const pdf_a
     x1 = hull.inverseCDF(.85);
     hull.reset();
     return x_star;
-}
-
-template <class T>
-int Hull<T>::squeezeTest(RngStream rng, double & x_trial, double & hx_trial, int segment_idx) {
-    double w = log(RngStream_RandU01(rng));
-    const double x = hull[segment_idx].left_x;
-    const double h_x = hull[segment_idx].h_x;
-    const double hp_x = hull[segment_idx].hprime_x;
-    const double z = hull[segment_idx].z;
-    double upr_hull_val = h_x + (x_trial - x) * hp_x;
-    double lwr_hull_val;
-
-    //compute lower hull value
-    if ((x_trial < x) && (segment_idx > 0)) {
-        const double x_lower = hull[segment_idx - 1].left_x;
-        const double hx_lower = hull[segment_idx - 1].h_x;
-        lwr_hull_val = ((x - x_trial) * h_x + (x_trial - x_lower) * hx_lower) /
-                (x - x_lower);
-    } else if ((x_trial > x) && (segment_idx < (num_hull_segments - 1))) {
-        const double x_upper = hull[segment_idx + 1].left_x;
-        const double hx_upper = hull[segment_idx + 1].h_x;
-        lwr_hull_val = ((x_upper - x_trial) * hx_upper + (x_trial - x) * h_x) /
-                (x_upper - x);
-    } else {
-        lwr_hull_val = -INFINITY;
-    }
-
-    // squeezing tests
-    if (w <= lwr_hull_val - upr_hull_val) {
-        return HULL_SAMPLE_ACCEPT;
-    }
-    hx_trial = dist.pdf(x_trial);
-    if (hx_trial - upr_hull_val) {
-        return HULL_SAMPLE_ACCEPT;
-    }
-    return HULL_SAMPLE_REJECT;
 }
 
