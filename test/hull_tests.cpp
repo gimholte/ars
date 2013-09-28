@@ -93,6 +93,12 @@ TEST_F(HullTest, BinarySearch) {
     ASSERT_EQ(segment, 1);
 }
 
+TEST_F(HullTest, InverseCdf) {
+    int seg_idx;
+    double q = hull.inverseCdf(.5, seg_idx);
+    std::cout << "Hull .5 quantile = " << q << std::endl;
+}
+
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
