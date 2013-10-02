@@ -6,8 +6,8 @@
  */
 
 #include "gtest/gtest.h"
-#include <iostream>
-#include "ars.h"
+#include "AdaptiveGibbsSampler.h"
+#include "LogDensity.h"
 
 namespace {
 class HullTest : public ::testing::Test {
@@ -24,6 +24,14 @@ protected:
         hp_x0 = 1.0 - 2.0;
         hp_x1 = 1.0 / 3.0 - 2.0;
         z0 = (h_x1 - h_x0 - x1 * hp_x1 + x0 * hp_x0) / (hp_x0 - hp_x1);
+    }
+};
+
+class ArsTest : public ::testing::Test {
+protected:
+    AdaptiveGibbsSampler<GammaDistribution> gamma_sampler;
+    void SetUp() {
+        gamma_sampler = AdaptiveGibbsSampler<GammaDistribution>(1.0, 3.0);
     }
 };
 }
@@ -94,10 +102,65 @@ TEST_F(HullTest, BinarySearch) {
 }
 
 TEST_F(HullTest, InverseCdf) {
-    int seg_idx;
-    double q = hull.inverseCdf(.5, seg_idx);
-    std::cout << "Hull .5 quantile = " << q << std::endl;
+    // checks that cdf/ inverse cdf functions are self-consistent
+    // within small absolute error.
+    int i, seg_idx;
+    double test_percentiles[] = {.000001, .1, .2, .3, .4, .5, .6, .7, .9, .999999};
+    double q, p;
+    for (i = 0; i < 10; i++) {
+        q = hull.inverseCdf(test_percentiles[i], seg_idx);
+        EXPECT_GT(q, 0.0);
+        p = hull.cdf(q);
+        EXPECT_NEAR(test_percentiles[i], p, .0000000001);
+    }
 }
+
+TEST_F(HullTest, InsertSegment) {
+    double xnew = 1.8;
+    double hxnew = hull.dist.pdf(xnew);
+    hull.printHull();
+    hull.insertSegment(xnew, hxnew, 1);
+    hull.printHull();
+    hull.insertSegment(.5, hull.dist.pdf(.5), 0);
+    hull.printHull();
+    hull.insertSegment(3.1, hull.dist.pdf(3.1), 3);
+    hull.printHull();
+}
+
+TEST_F(ArsTest, TestInit) {
+    EXPECT_EQ(1.0, gamma_sampler.x0);
+    EXPECT_EQ(3.0, gamma_sampler.x1);
+}
+
+TEST_F(ArsTest, GenerateSample) {
+    double gamma_args[] = {2.0, 2.0};
+    RngStream rng = RngStream_CreateStream("");
+    double samp;
+    samp = gamma_sampler.sample(rng, gamma_args);
+    EXPECT_GT(samp, 0.0);
+    EXPECT_GT(gamma_sampler.x0, 0.0);
+    EXPECT_GT(gamma_sampler.x1, gamma_sampler.x0);
+    EXPECT_EQ(gamma_sampler.hull.num_hull_segments, 2);
+    EXPECT_EQ(gamma_sampler.hull.upper_hull_max, -INFINITY);
+}
+
+TEST_F(ArsTest, GammaMomentTest) {
+    double gamma_args[] = {2.9, 2.0};
+    RngStream rng = RngStream_CreateStream("");
+    double samp, mean = 0.0;
+    int n = 1, nsamp = 100000;
+    while(n <= nsamp) {
+        samp = gamma_sampler.sample(rng, gamma_args);
+        ASSERT_GT(samp, 0.0);
+        mean = mean * (n - 1.0) / n + samp / n;
+        n++;
+    }
+    double true_mean = gamma_args[0] / gamma_args[1];
+    double true_se = sqrt(true_mean / gamma_args[1] / nsamp);
+    EXPECT_GT(mean, true_mean - 2.6 * true_se);
+    EXPECT_LT(mean, true_mean + 2.6 * true_se);
+}
+
 
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
