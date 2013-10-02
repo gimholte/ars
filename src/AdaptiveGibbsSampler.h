@@ -23,22 +23,25 @@ public:
         x1 = x1_init;
     };
 
-    double sample(RngStream rng, double const * const pdf_args) {
-        hull.initialize(x0, x1, pdf_args);
-        int hull_sample_success;
-        double x_star;
-        hull_sample_success = hull.drawSample(rng, x_star);
-
-        if (hull_sample_success == 0) {
-            hull.printHull();
-            Rcpp::stop("Maximum iterations reached in adaptive rejection sampler");
-        }
-        int segment_idx;
-        x0 = hull.inverseCDF(.15, segment_idx);
-        x1 = hull.inverseCDF(.85, segment_idx);
-        hull.reset();
-        return x_star;
-    };
+    double sample(RngStream rng, double const * const pdf_args);
 };
+
+template <class T>
+double AdaptiveGibbsSampler<T>::sample(RngStream rng, double const * const pdf_args) {
+    hull.initialize(x0, x1, pdf_args);
+    int hull_sample_success;
+    double x_star;
+    hull_sample_success = hull.drawSample(rng, x_star);
+
+    if (hull_sample_success == 0) {
+        hull.printHull();
+        Rcpp::stop("Maximum iterations reached in adaptive rejection sampler");
+    }
+    int segment_idx;
+    x0 = hull.inverseCdf(.15, segment_idx);
+    x1 = hull.inverseCdf(.85, segment_idx);
+    hull.reset();
+    return x_star;
+}
 
 #endif /* ADAPTIVEGIBBSSAMPLER_H_ */
