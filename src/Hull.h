@@ -1,23 +1,19 @@
 /*
- * ars.h
+ * Hull.h
  *
- *  Created on: Sep 23, 2013
+ *  Created on: Oct 2, 2013
  *      Author: hoblitz
- *
- *  A class for generating samples from a log concave density on (0, Inf)
- *  using standard template library containers
  */
 
-#ifndef ARS_H_
-#define ARS_H_
+#ifndef HULL_H_
+#define HULL_H_
 
 #include <Rcpp.h>
-#include <R.h>
 #include "RngStream.h"
 #include "utils.h"
-using namespace Rcpp;
+using namespace std;
 
-#define MAX_HULL_SIZE 100
+#define MAX_HULL_SIZE 500
 #define MAX_HULL_TRIALS 1000
 #define HULL_SAMPLE_ACCEPT 1
 #define HULL_SAMPLE_REJECT 0
@@ -56,7 +52,6 @@ public:
 
         upper_hull_max = hpx0 > 0.0 ? hx0 + (z0 - x0) * hpx0 : hx0 - x0 * hpx0;
     };
-
     void normalizeHull() {
         double cumulative_integral = -INFINITY;
         double segment_integral;
@@ -77,7 +72,6 @@ public:
         }
         return;
     };
-
     double integrateSegment(HullSegment const & segment, const double z_prev) {
         const double xj = segment.left_x;
         /* subtract hull max to bound upper hull between zero and one */
@@ -99,7 +93,6 @@ public:
 
         return pre_factor + int_factor;
     };
-
     void setZcoord(HullSegment & seg_left, HullSegment const & seg_right) {
         const double xj = seg_left.left_x;
         const double hxj = seg_left.h_x;
@@ -115,7 +108,6 @@ public:
             seg_left.z = (hxj + hxj1) / 2.0;
         return;
     };
-
     void updateZ(const int insert_idx) {
         if (insert_idx == 0) {
             setZcoord(hull[insert_idx], hull[insert_idx + 1]);
@@ -128,13 +120,16 @@ public:
         }
         return;
     };
-
     void renormalizeHull(const int insert_idx) {
-        double z_prev = 0.0;
         int idx_min = (insert_idx == 0) ? 0 : (insert_idx - 1);
         int idx_max = (insert_idx < num_hull_segments - 1) ?
                 (num_hull_segments - 1) : (insert_idx + 1);
         double segment_integral, cumulative_integral = -INFINITY;
+        double z_prev = 0.0;
+        if (idx_min > 0) {
+            z_prev = hull[idx_min - 1].z;
+            cumulative_integral = hull[idx_min - 1].raw_cumulative_integral;
+        }
 
         int k;
         for(k = idx_min; k <= idx_max; k++) {
@@ -153,7 +148,6 @@ public:
 
         return;
     };
-
     double inverseCDF(const double p, int & seg_idx)  {
         seg_idx = argBinarySearch(log(p), 0, num_hull_segments - 1);
         /* seg_idx now contains the index of the hull segment such that
@@ -165,14 +159,18 @@ public:
         const double hp_x = hull[seg_idx].hprime_x;
         const double z_prev = (seg_idx == 0) ? 0.0:hull[seg_idx - 1].z;
         const double cdf_prev_seg = (seg_idx == 0) ? 0.0:exp(hull[seg_idx - 1].cum_prob);
+        const double hull_integral = hull[num_hull_segments - 1].raw_cumulative_integral;
         const double p_remainder = p - cdf_prev_seg;
 
-        const double x_star = log(p_remainder * exp(hull[num_hull_segments - 1].raw_cumulative_integral) *
+        if (hp_x == 0.0) {
+            return p_remainder / exp(h_x - upper_hull_max - hull_integral) + z_prev;
+        }
+        const double x_star = log(p_remainder * exp(hull_integral) *
                 hp_x + exp((z_prev - x)* hp_x + h_x - upper_hull_max)) +
                         x*hp_x - (h_x - upper_hull_max);
-        return x_star;
-    };
 
+        return x_star / hp_x;
+    };
     int argBinarySearch(const double log_u, int lower, int upper) {
         const int mid = (lower + upper) / 2;
         if (mid == lower)
@@ -183,13 +181,11 @@ public:
             return argBinarySearch(log_u, mid, upper);
         }
     };
-
     int squeezeTest(RngStream rng, double & x_trial, double & hx_trial, int segment_idx) {
         double w = log(RngStream_RandU01(rng));
         const double x = hull[segment_idx].left_x;
         const double h_x = hull[segment_idx].h_x;
         const double hp_x = hull[segment_idx].hprime_x;
-        const double z = hull[segment_idx].z;
         double upr_hull_val = h_x + (x_trial - x) * hp_x;
         double lwr_hull_val;
 
@@ -218,15 +214,16 @@ public:
         }
         return HULL_SAMPLE_REJECT;
     };
-
     int drawSample(RngStream rng, double & x_sample) {
         int num_trials = 0;
         int segment_idx;
         int test_outcome;
-        double x_trial, hx_trial;
+        double x_trial, hx_trial, u;
         while (num_trials < MAX_HULL_TRIALS) {
             // sample the upper hull
-            x_trial = inverseCDF(RngStream_RandU01(rng), segment_idx);
+            u = RngStream_RandU01(rng);
+
+            x_trial = inverseCDF(u, segment_idx);
             // apply squeeze test
             test_outcome = squeezeTest(rng, x_trial, hx_trial, segment_idx);
             if (test_outcome == HULL_SAMPLE_ACCEPT) {
@@ -239,7 +236,6 @@ public:
         }
         return 0;
     };
-
     void initialize(const double x0, const double x1, double const * const pdf_args) {
         // before all else, initialize the distribution parameters
         dist.setParameters(pdf_args);
@@ -268,7 +264,31 @@ public:
         initializeHullMax();
         normalizeHull();
     };
+    double cdf(const double x) {
+        int seg_idx = 0;
+        double z_upper = hull[seg_idx].z;
+        while(x > z_upper) {
+            seg_idx++;
+            z_upper = hull[seg_idx].z;
+        }
+        // x <= z_upper == hull[seg_idx].z
 
+        const double xj = hull[seg_idx].left_x;
+        const double hxj = hull[seg_idx].h_x - upper_hull_max;
+        const double hpxj = hull[seg_idx].hprime_x;
+
+        double integral_tot = -INFINITY;
+        double z_lower = 0.0;
+        if (seg_idx > 0) {
+            integral_tot = hull[seg_idx - 1].raw_cumulative_integral;
+            z_lower = hull[seg_idx - 1].z;
+        }
+
+        double seg_integral = hxj - xj * hpxj +
+                log((exp(hpxj * x) - exp(hpxj * z_lower))/hpxj);
+        integral_tot = logspaceAdd(integral_tot, seg_integral);
+        return exp(integral_tot - hull[num_hull_segments - 1].raw_cumulative_integral);
+    };
     double inverseCdf(const double p, int & seg_idx)  {
         seg_idx = argBinarySearch(log(p), 0, num_hull_segments - 1);
         /* seg_idx now contains the index of the hull segment such that
@@ -280,14 +300,18 @@ public:
         const double hp_x = hull[seg_idx].hprime_x;
         const double z_prev = (seg_idx == 0) ? 0.0:hull[seg_idx - 1].z;
         const double cdf_prev_seg = (seg_idx == 0) ? 0.0:exp(hull[seg_idx - 1].cum_prob);
+        const double hull_integral = hull[num_hull_segments - 1].raw_cumulative_integral;
         const double p_remainder = p - cdf_prev_seg;
+
+        if (hp_x == 0.0) {
+            return p_remainder / exp(h_x - upper_hull_max - hull_integral) + z_prev;
+        }
 
         const double x_star = log(p_remainder * exp(hull[num_hull_segments - 1].raw_cumulative_integral) *
                 hp_x + exp((z_prev - x)* hp_x + h_x - upper_hull_max)) +
                         x*hp_x - (h_x - upper_hull_max);
         return x_star / hp_x;
     };
-
     void insertSegment(const double x_new, const double h_xnew, const int origin_idx) {
         if (num_hull_segments == MAX_HULL_SIZE)
             return;
@@ -307,59 +331,28 @@ public:
         renormalizeHull(insert_idx);
         return;
     };
-};
-
-/* base class for densities we'd like to sample*/
-class LogDensity {
-public:
-    virtual double pdf(const double x) =0;
-    virtual double pdfDeriv(const double x) =0;
-    virtual ~LogDensity() {};
-    virtual void setParameters(double const * const args) =0;
-};
-
-class GammaDistribution : public LogDensity {
-    double shape, rate;
-public:
-    void setParameters(double const * const args) {
-        shape = args[0];
-        rate = args[1];
-    }
-
-    double pdf(const double x) {
-        return (shape - 1.0) * log(x) - x * rate;
-    }
-
-    double pdfDeriv(const double x) {
-        return (shape - 1.0) / x - rate;
-    }
-};
-
-template <class T>
-class AdaptiveGibbsSampler {
-    Hull<T> hull;
-    double x0, x1;
-
-    //int squeezeTest(RngStream rng, double & xstar, double & h_xstar);
-public:
-    AdaptiveGibbsSampler(double const x0_init, double const x1_init) {
-        x0 = x0_init;
-        x1 = x1_init;
-    }
-    double sample(RngStream rng, double const * const pdf_args) {
-        hull.initialize(x0, x1, pdf_args);
-        int hull_sample_success;
-        double x_star;
-        hull_sample_success = hull.drawSample(rng, x_star);
-        if (!hull_sample_success) {
-            //Rcpp:stop("Maximum iterations reached in adaptive rejection sampler");
+    void printHull() {
+        cout << fixed;
+        cout << setprecision(4);
+        cout << "hull max value:" << upper_hull_max << endl;
+        cout << setw(7) << "seg idx" << setw(10) << "x" << setw(10) << "z";
+        cout << setw(10) << "seg prob" << setw(10) <<"cumu prob";
+        cout << setw(10) << "seg int" << setw(10) << "cumu int" << endl;
+        for (int i = 0; i < num_hull_segments; i++) {
+            cout << setw(7) << i;
+            cout << setw(10) << hull[i].left_x;
+            cout << setw(10) << hull[i].z;
+            cout << setw(10) << exp(hull[i].prob);
+            cout << setw(10) << exp(hull[i].cum_prob);
+            cout << setw(10) << exp(hull[i].raw_integral);
+            cout << setw(10) << exp(hull[i].raw_cumulative_integral) << endl;
         }
-
-        x0 = hull.inverseCDF(.15);
-        x1 = hull.inverseCDF(.85);
-        hull.reset();
-        return x_star;
     };
+    void reset(){
+        num_hull_segments = 2;
+        upper_hull_max = -INFINITY;
+    }
 };
 
-#endif /* ARS_H_ */
+
+#endif /* HULL_H_ */
