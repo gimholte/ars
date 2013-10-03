@@ -27,11 +27,19 @@ protected:
     }
 };
 
-class ArsTest : public ::testing::Test {
+class ArsGammaTest : public ::testing::Test {
 protected:
     AdaptiveGibbsSampler<GammaDistribution> gamma_sampler;
     void SetUp() {
         gamma_sampler = AdaptiveGibbsSampler<GammaDistribution>(1.0, 3.0);
+    }
+};
+
+class ArsWeibullTest : public ::testing::Test {
+protected:
+    AdaptiveGibbsSampler<WeibullDistribution> weibull_sampler;
+    void SetUp() {
+        weibull_sampler = AdaptiveGibbsSampler<WeibullDistribution>(1.0, 3.0);
     }
 };
 }
@@ -76,6 +84,16 @@ TEST_F(HullTest, IntegrateHullSegments) {
 
     EXPECT_EQ(0.0, hull.hull[1].cum_prob);
     EXPECT_EQ(integral - logspaceAdd(integral, integral1), hull.hull[0].cum_prob);
+    double gamma_args[] = {2.0, 2.0};
+    hull.initialize(.25, 3.0, gamma_args);
+    h_x0 = hull.hull[0].h_x;
+    x0 = .25;
+    z0 = hull.hull[0].z;
+    hp_x0 = hull.hull[0].hprime_x;
+    EXPECT_GT(hp_x0, 0.0);
+    integral = (exp(h_x0 - hull.upper_hull_max - x0 * hp_x0) / hp_x0) * (exp(hp_x0 * z0) - exp(0.0));
+    result = hull.integrateSegment(hull.hull[0], 0.0);
+    EXPECT_DOUBLE_EQ(log(integral), result);
 }
 
 TEST_F(HullTest, BinarySearch) {
@@ -127,12 +145,12 @@ TEST_F(HullTest, InsertSegment) {
     hull.printHull();
 }
 
-TEST_F(ArsTest, TestInit) {
+TEST_F(ArsGammaTest, TestInit) {
     EXPECT_EQ(1.0, gamma_sampler.x0);
     EXPECT_EQ(3.0, gamma_sampler.x1);
 }
 
-TEST_F(ArsTest, GenerateSample) {
+TEST_F(ArsGammaTest, GenerateSample) {
     double gamma_args[] = {2.0, 2.0};
     RngStream rng = RngStream_CreateStream("");
     double samp;
@@ -144,8 +162,8 @@ TEST_F(ArsTest, GenerateSample) {
     EXPECT_EQ(gamma_sampler.hull.upper_hull_max, -INFINITY);
 }
 
-TEST_F(ArsTest, GammaMomentTest) {
-    double gamma_args[] = {2.9, 2.0};
+TEST_F(ArsGammaTest, GammaMomentTest) {
+    double gamma_args[] = {2.0, 2.0};
     RngStream rng = RngStream_CreateStream("");
     double samp, mean = 0.0;
     int n = 1, nsamp = 100000;
@@ -157,6 +175,25 @@ TEST_F(ArsTest, GammaMomentTest) {
     }
     double true_mean = gamma_args[0] / gamma_args[1];
     double true_se = sqrt(true_mean / gamma_args[1] / nsamp);
+    EXPECT_GT(mean, true_mean - 2.6 * true_se);
+    EXPECT_LT(mean, true_mean + 2.6 * true_se);
+}
+
+TEST_F(ArsWeibullTest, WeibullMomentTest) {
+    double weibull_args[] = {2.0, 2.0};
+    double k = 2.0;
+    double ell = 2.0;
+    RngStream rng = RngStream_CreateStream("");
+    double samp, mean = 0.0;
+    int n = 1, nsamp = 100000;
+    while(n <= nsamp) {
+        samp = weibull_sampler.sample(rng, weibull_args);
+        ASSERT_GT(samp, 0.0);
+        mean = mean * (n - 1.0) / n + samp / n;
+        n++;
+    }
+    double true_mean = ell * exp(lgamma(1.0 + 1.0 / k));
+    double true_se = sqrt((ell * ell * exp(lgamma(1.0 + 2.0 / k)) - true_mean * true_mean) / nsamp);
     EXPECT_GT(mean, true_mean - 2.6 * true_se);
     EXPECT_LT(mean, true_mean + 2.6 * true_se);
 }
