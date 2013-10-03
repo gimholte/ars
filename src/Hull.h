@@ -108,11 +108,13 @@ double Hull<T>::integrateSegment(HullSegment const & segment, const double z_pre
         return log(zj - z_prev) + hxj;
     }
 
-    const double pre_factor = hxj - (xj - z_prev) * hpxj - log(fabs(hpxj));
+    double pre_factor;
     double int_factor;
     if (hpxj > 0.0) {
+        pre_factor = hxj + (zj - xj) * hpxj - log(hpxj);
         int_factor = log1p(-exp(hpxj * (z_prev - zj)));
     } else {
+        pre_factor = hxj + (z_prev - xj) * hpxj - log(fabs(hpxj));
         int_factor = log1p(-exp(hpxj * (zj - z_prev)));
     }
 
@@ -163,7 +165,7 @@ void Hull<T>::renormalizeHull(const int insert_idx) {
     }
 
     int k;
-    for(k = idx_min; k <= idx_max; k++) {
+    for(k = idx_min; k < num_hull_segments; k++) {
         if (k <= idx_max && k >= idx_min)
             hull[k].raw_integral = integrateSegment(hull[k], z_prev);
         segment_integral = hull[k].raw_integral;
@@ -198,30 +200,30 @@ int Hull<T>::squeezeTest(RngStream rng, double & x_trial, double & hx_trial, int
     const double x = hull[segment_idx].left_x;
     const double h_x = hull[segment_idx].h_x;
     const double hp_x = hull[segment_idx].hprime_x;
-    double upr_hull_val = h_x + (x_trial - x) * hp_x;
+    const double upr_hull_val = h_x + (x_trial - x) * hp_x;
     double lwr_hull_val;
 
     //compute lower hull value
-    if ((x_trial < x) && (segment_idx > 0)) {
+    if ((x_trial <= x) && (segment_idx > 0)) {
         const double x_lower = hull[segment_idx - 1].left_x;
         const double hx_lower = hull[segment_idx - 1].h_x;
-        lwr_hull_val = ((x - x_trial) * h_x + (x_trial - x_lower) * hx_lower) /
+        lwr_hull_val = ((x - x_trial) * hx_lower + (x_trial - x_lower) * h_x) /
                 (x - x_lower);
-    } else if ((x_trial > x) && (segment_idx < (num_hull_segments - 1))) {
+    } else if ((x_trial >= x) && (segment_idx < (num_hull_segments - 1))) {
         const double x_upper = hull[segment_idx + 1].left_x;
         const double hx_upper = hull[segment_idx + 1].h_x;
-        lwr_hull_val = ((x_upper - x_trial) * hx_upper + (x_trial - x) * h_x) /
+        lwr_hull_val = ((x_upper - x_trial) * h_x + (x_trial - x) * hx_upper) /
                 (x_upper - x);
     } else {
         lwr_hull_val = -INFINITY;
     }
 
     // squeezing tests
-    if (w <= lwr_hull_val - upr_hull_val) {
+    if (w <= (lwr_hull_val - upr_hull_val)) {
         return HULL_SAMPLE_ACCEPT;
     }
     hx_trial = dist.pdf(x_trial);
-    if (hx_trial - upr_hull_val) {
+    if (w <= (hx_trial - upr_hull_val)) {
         return HULL_SAMPLE_ACCEPT;
     }
     return HULL_SAMPLE_REJECT;
@@ -318,7 +320,7 @@ double Hull<T>::inverseCdf(const double p, int & seg_idx) {
     const double x = hull[seg_idx].left_x;
     const double h_x = hull[seg_idx].h_x;
     const double hp_x = hull[seg_idx].hprime_x;
-    const double z_prev = (seg_idx == 0) ? 0.0:hull[seg_idx - 1].z;
+    const double z_prev = (seg_idx == 0) ? (double)0.0:hull[seg_idx - 1].z;
     const double cdf_prev_seg = (seg_idx == 0) ? 0.0:exp(hull[seg_idx - 1].cum_prob);
     const double hull_integral = hull[num_hull_segments - 1].raw_cumulative_integral;
     const double p_remainder = p - cdf_prev_seg;
@@ -327,9 +329,9 @@ double Hull<T>::inverseCdf(const double p, int & seg_idx) {
         return p_remainder / exp(h_x - upper_hull_max - hull_integral) + z_prev;
     }
 
-    const double x_star = log(p_remainder * exp(hull[num_hull_segments - 1].raw_cumulative_integral) *
-            hp_x + exp((z_prev - x)* hp_x + h_x - upper_hull_max)) +
-                    x*hp_x - (h_x - upper_hull_max);
+    const double x_star = log(p_remainder * exp(hull_integral) * hp_x +
+            exp((z_prev - x) * hp_x + h_x - upper_hull_max)) +
+                    x*hp_x - h_x + upper_hull_max;
     return x_star / hp_x;
 }
 
