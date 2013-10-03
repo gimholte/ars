@@ -20,7 +20,7 @@ protected:
         x0 = 1.0;
         x1 = 3.0;
         h_x0 = -2.0;
-        h_x1 = log(3.0) - 6.0;
+        h_x1 = log((double)3.0) - 6.0;
         hp_x0 = 1.0 - 2.0;
         hp_x1 = 1.0 / 3.0 - 2.0;
         z0 = (h_x1 - h_x0 - x1 * hp_x1 + x0 * hp_x0) / (hp_x0 - hp_x1);
@@ -169,14 +169,15 @@ TEST_F(ArsGammaTest, GammaMomentTest) {
     int n = 1, nsamp = 100000;
     while(n <= nsamp) {
         samp = gamma_sampler.sample(rng, gamma_args);
-        ASSERT_GT(samp, 0.0);
         mean = mean * (n - 1.0) / n + samp / n;
         n++;
     }
+
     double true_mean = gamma_args[0] / gamma_args[1];
     double true_se = sqrt(true_mean / gamma_args[1] / nsamp);
     EXPECT_GT(mean, true_mean - 2.6 * true_se);
     EXPECT_LT(mean, true_mean + 2.6 * true_se);
+
 }
 
 TEST_F(ArsWeibullTest, WeibullMomentTest) {
