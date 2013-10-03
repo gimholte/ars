@@ -11,8 +11,12 @@
 *.lai
 *.la
 *.a
-/Debug
+
+# Gprof output
+gmon.out
 
 # Eclipse project info
 .cproject
 .project
+/Debug
+/Release
